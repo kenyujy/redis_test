@@ -19,7 +19,7 @@ import org.springframework.stereotype.Component;
 @Configuration
 @EnableCaching
 @PropertySource("classpath:application.properties")
-public class MyJedisConfig extends CachingConfigurerSupport {
+public class MyRedisConfig extends CachingConfigurerSupport {
 
     @Value("${spring.redis.host}")
     private String host;
