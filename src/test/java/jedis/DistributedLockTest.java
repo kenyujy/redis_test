@@ -4,6 +4,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 //import org.redisson.api.RLock;
 //import org.redisson.api.RedissonClient;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -31,27 +33,37 @@ public class DistributedLockTest {
     @Autowired
     RedisTemplate redisTemplate;
 
-    Lock lock=new ReentrantLock();
+    Lock rlock=new ReentrantLock();
 
-    /*
     @Autowired
     RedissonClient redissonClient;
 
     @Test
-    public void test1(){
-        RLock lock= redissonClient.getLock("lock");
+    public void test1() throws InterruptedException {
+        RLock redissonClientLock= redissonClient.getLock("lock1");
 
-        try{
-            lock.lock(6, TimeUnit.SECONDS); //默认阻塞，拿不到lock会阻塞
-            Thread.sleep(5000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }finally {
-            lock.unlock();
+        ExecutorService service= Executors.newFixedThreadPool(16);
+        for(int i=0; i<1000; i++) {
+            service.execute(() -> {
+                for(int j=0; j<100; j++) {
+                    try {
+                        redissonClientLock.lock(); //默认阻塞，拿不到lock会阻塞
+                        incrementBy();
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        }
+                    finally {
+                        redissonClientLock.unlock();
+                    }
+                }
+            });
         }
+        service.shutdown();
+        service.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);;
+
         redissonClient.shutdown();
     }
-    */
+
     /*
     * 使用Spring容器项目启动的时候，容器一直在运行中，它的stringRedisTemplate实例一直存在，
     * 不管异步还是同步执行，stringRedisTemplate bean的资源都不会被回收
@@ -67,13 +79,13 @@ public class DistributedLockTest {
             ths[i]= new Thread(() -> {
                 try {
                     for(int j=0; j<100; j++)
-                    incrementBy1();
+                        incrementBy();
                 } catch (InterruptedException e) {
                     e.printStackTrace();
                 }
             });
         }
-        Arrays.asList(ths).forEach(th->th.start());
+        Arrays.asList(ths).forEach(thread -> thread.start());
         Arrays.asList(ths).forEach(th-> {
             try {
                 th.join();
@@ -102,21 +114,7 @@ public class DistributedLockTest {
     }
 
     @Test
-    public void test3() throws InterruptedException {
-
-        Thread th= new Thread(()->{
-            try {
-                incrementBy1();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        });
-        th.start();
-        th.join();
-    }
-
-    @Test
-    public synchronized void incrementBy() throws InterruptedException { //synchronized 比 ReentrantLock 快
+    public void incrementBy() throws InterruptedException { //synchronized 比 ReentrantLock 快
         //lock.lock();
         String uuid = UUID.randomUUID().toString();
         Integer k = (Integer) redisTemplate.opsForValue().get("num");
@@ -130,8 +128,8 @@ public class DistributedLockTest {
         boolean lock=true;
         while (lock) {  //拿不到锁就自旋, 这种方式正确
             String uuid = UUID.randomUUID().toString();
-            lock = redisTemplate.opsForValue().setIfAbsent("lock1", "newlock" + uuid, 3, TimeUnit.SECONDS);
-            if (lock) {
+            Object obj = redisTemplate.opsForValue().setIfAbsent("lock1", "newlock" + uuid, 3, TimeUnit.SECONDS);
+            if (null!=obj && (boolean) obj) {
                 Integer k = (Integer) redisTemplate.opsForValue().get("num");
                 redisTemplate.opsForValue().set("num", k + 1);
                 lock=false;
