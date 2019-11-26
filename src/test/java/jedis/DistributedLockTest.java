@@ -15,6 +15,8 @@ import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /*
  * 各自查询各自的锁 lock+ productid
@@ -28,6 +30,8 @@ public class DistributedLockTest {
 
     @Autowired
     RedisTemplate redisTemplate;
+
+    Lock lock=new ReentrantLock();
 
     /*
     @Autowired
@@ -80,6 +84,24 @@ public class DistributedLockTest {
     }
 
     @Test
+    public void test6() throws InterruptedException {
+        //线程池比开1000个线程跑要快
+        ExecutorService service= Executors.newFixedThreadPool(16);
+        for(int i=0; i<1000; i++) {
+            service.execute(() -> {
+                try {
+                    for(int j=0; j<100; j++)
+                        incrementBy1();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            });
+        }
+        service.shutdown();
+        service.awaitTermination(Long.MAX_VALUE, TimeUnit.SECONDS);
+    }
+
+    @Test
     public void test3() throws InterruptedException {
 
         Thread th= new Thread(()->{
@@ -94,6 +116,16 @@ public class DistributedLockTest {
     }
 
     @Test
+    public synchronized void incrementBy() throws InterruptedException { //synchronized 比 ReentrantLock 快
+        //lock.lock();
+        String uuid = UUID.randomUUID().toString();
+        Integer k = (Integer) redisTemplate.opsForValue().get("num");
+        redisTemplate.opsForValue().set("num", k + 1);
+        //TimeUnit.MILLISECONDS.sleep(20); //睡了一下反而提高性能?
+        //lock.unlock();
+    }
+
+    @Test
     public void incrementBy1() throws InterruptedException {
         boolean lock=true;
         while (lock) {  //拿不到锁就自旋, 这种方式正确
@@ -105,7 +137,7 @@ public class DistributedLockTest {
                 lock=false;
             }else {
                 TimeUnit.MILLISECONDS.sleep(20); //睡了一下反而提高性能?
-                lock=true;
+                lock=true;  //拿不到锁就继续拿
             }
         }
         //String script="if (redis.call('GET', KEYS[1]) == ARGV[1]) then return redis.call('DEL',KEYS[1]) else return 0 end";
